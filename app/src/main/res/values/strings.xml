@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">SmartAIApp</string>
+    <string name="send">Send</string>
+    <string name="ask_something">Ask Something...</string>
+</resources>

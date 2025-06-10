@@ -13,6 +13,7 @@ class ChatViewModel : ViewModel() {
         private set
     fun sendMessage(inputMsg:String){
         messages.add(ChatMessage(inputMsg, isUser = true))
+        // dummy message, will integrate with AI later
         viewModelScope.launch {
             delay(1000)
             messages.add(ChatMessage("Prince Bank: You said '$inputMsg'", isUser = false))

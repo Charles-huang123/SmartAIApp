@@ -12,6 +12,10 @@ import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.ListenerRegistration
 import com.google.firebase.firestore.firestore
+import com.google.firebase.functions.FirebaseFunctions
+import com.google.firebase.functions.functions
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import java.util.Date
@@ -20,6 +24,7 @@ class ChatViewModel : ViewModel() {
     // Initialize Firebase Firestore and Auth instances
     private val db: FirebaseFirestore = Firebase.firestore
     private val auth: FirebaseAuth = FirebaseAuth.getInstance()
+    private val functions: FirebaseFunctions = Firebase.functions
     // ListenerRegistration to manage the Firestore snapshot listener
     private var messagesListener: ListenerRegistration? = null
 
@@ -27,8 +32,8 @@ class ChatViewModel : ViewModel() {
     var currentUser = mutableStateOf<FirebaseUser?>(null)
         private set // Only allow modifications within the ViewModel
 
-    var messages = mutableStateListOf<ChatMessage>()
-        private set
+    private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
+    val messages = _messages.asStateFlow()
 
     // Initialize user authentication when the ViewModel is created
     init {
@@ -70,18 +75,17 @@ class ChatViewModel : ViewModel() {
                     val messagesList = snapshot.documents.mapNotNull { document ->
                         try {
                             // Convert Firestore document to Message data class
-                            document.toObject(ChatMessage::class.java)?.copy(id = document.id)
+                            document.toObject(ChatMessage::class.java)?.copy(id = document.id, isUser = document.data?.get("user") as? Boolean ?: false)
                         } catch (e: Exception) {
                             Log.e("ChatViewModel", "Error converting document to Message: ${e.message}", e)
                             null
                         }
                     }
-                    messages.clear()
-                    messages.addAll(messagesList)
+                    _messages.value = messagesList
                     Log.d("ChatViewModel", "Messages updated: ${messagesList.size}")
                 } else {
                     Log.d("ChatViewModel", "Current data: null or empty")
-                    messages.addAll(emptyList())// Clear messages if no data
+                    _messages.value = emptyList() // Clear messages if no data
                 }
             }
     }
@@ -110,7 +114,8 @@ class ChatViewModel : ViewModel() {
         val message = ChatMessage(
             userId = userId,
             text = text,
-            timestamp = Date().time // Current timestamp
+            timestamp = Date().time,
+            isUser = true// Current timestamp
         )
 
         // Add the message to the 'chats' collection in Firestore.
@@ -123,10 +128,87 @@ class ChatViewModel : ViewModel() {
             .add(message) // add() automatically generates a document ID
             .addOnSuccessListener { documentReference ->
                 Log.d("ChatViewModel", "DocumentSnapshot added with ID: ${documentReference.id}")
+                callDialogflowDetectIntent(text, userId)
             }
             .addOnFailureListener { e ->
                 Log.d("ChatViewModel", "Error adding document", e)
             }
+    }
+    /**
+     * Calls the Firebase Cloud Function to detect intent with Dialogflow.
+     * @param userText The user's input text.
+     * @param sessionId The session ID for the conversation (user's UID).
+     */
+    private fun callDialogflowDetectIntent(userText: String, sessionId: String) {
+        viewModelScope.launch {
+            try {
+                // Prepare the data to send to the Cloud Function
+                val data = hashMapOf(
+                    "text" to userText,
+                    "sessionId" to sessionId // Pass the user's UID as session ID
+                )
+
+                // Call the 'detectIntent' Cloud Function
+                // This will execute your Node.js code deployed in Firebase Functions
+                val result = functions
+                    .getHttpsCallable("detectIntent") // Name of your Cloud Function
+                    .call(data)
+                    .await()
+
+                // Parse the result from the Cloud Function
+                val responseData = result.data as? Map<String, Any>
+                val fulfillmentText = responseData?.get("fulfillmentText") as? String
+
+                if (!fulfillmentText.isNullOrBlank()) {
+                    // 3. Save AI's response to Firestore
+                    val aiMessage = ChatMessage(
+                        userId = "AI", // Identifier for AI messages
+                        text = fulfillmentText,
+                        timestamp = Date().time,
+                        isUser = false
+                    )
+                    val collectionPath = "artifacts/${sessionId}/public/data/messages" // Use sessionId for path
+
+                    db.collection(collectionPath)
+                        .add(aiMessage)
+                        .addOnSuccessListener { aiDocRef ->
+                            Log.d("ChatViewModel", "AI message added with ID: ${aiDocRef.id}")
+                        }
+                        .addOnFailureListener { e ->
+                            Log.w("ChatViewModel", "Error adding AI message", e)
+                        }
+                } else {
+                    val collectionPath = "artifacts/${sessionId}/public/data/messages" // Use sessionId for path
+                    Log.w("ChatViewModel", "Dialogflow returned an empty or null fulfillment text.")
+                    // Optionally, save a default "I don't understand" message
+                    val fallbackMessage = ChatMessage(
+                        userId = "AI",
+                        text = "I'm sorry, I didn't understand that. Can you rephrase?",
+                        timestamp = Date().time,
+                        isUser = false
+                    )
+                    db.collection(collectionPath)
+                        .add(fallbackMessage)
+                        .addOnSuccessListener { Log.d("ChatViewModel", "Fallback AI message added.") }
+                        .addOnFailureListener { Log.w("ChatViewModel", "Error adding fallback AI message", it) }
+                }
+
+            } catch (e: Exception) {
+                Log.e("ChatViewModel", "Error calling Cloud Function: ${e.message}", e)
+                // Optionally, save an error message if the function call fails
+                val errorMessage = ChatMessage(
+                    userId = "AI",
+                    text = "Oops! Something went wrong with the AI. Please try again.",
+                    timestamp = Date().time,
+                    isUser = false
+                )
+                val collectionPath = "artifacts/${sessionId}/public/data/messages"
+                db.collection(collectionPath)
+                    .add(errorMessage)
+                    .addOnSuccessListener { Log.d("ChatViewModel", "Error AI message added.") }
+                    .addOnFailureListener { Log.w("ChatViewModel", "Error adding error AI message", it) }
+            }
+        }
     }
     // Remember to remove the listener when the ViewModel is no longer needed
     override fun onCleared() {

@@ -5,5 +5,5 @@ data class ChatMessage(
     val userId:String = "",
     val text: String = "",
     val timestamp: Long = 0L,
-    val isUser:Boolean
+    val isUser:Boolean = false
 )

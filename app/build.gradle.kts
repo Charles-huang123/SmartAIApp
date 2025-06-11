@@ -41,11 +41,11 @@ android {
 }
 
 dependencies {
-    implementation(libs.firebase.bom)
+    implementation(platform(libs.firebase.bom))
+    implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.activity.compose)
-    implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.ui)
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
@@ -54,7 +54,9 @@ dependencies {
     // for calling firebase
     implementation(libs.firebase.functions.ktx)
     // for chat history
-    implementation (libs.firebase.firestore.ktx)
+    implementation (libs.firebase.firestore)
+    // firebase auth
+    implementation (libs.firebase.auth)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

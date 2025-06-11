@@ -128,46 +128,45 @@ class ChatViewModel : ViewModel() {
             .add(message) // add() automatically generates a document ID
             .addOnSuccessListener { documentReference ->
                 Log.d("ChatViewModel", "DocumentSnapshot added with ID: ${documentReference.id}")
-                callDialogflowDetectIntent(text, userId)
+                callGeminiChatFunction(text, userId)
             }
             .addOnFailureListener { e ->
                 Log.d("ChatViewModel", "Error adding document", e)
             }
     }
     /**
-     * Calls the Firebase Cloud Function to detect intent with Dialogflow.
+     * Calls the Firebase Cloud Function to chat directly with Gemini.
      * @param userText The user's input text.
      * @param sessionId The session ID for the conversation (user's UID).
      */
-    private fun callDialogflowDetectIntent(userText: String, sessionId: String) {
+    private fun callGeminiChatFunction(userText: String, sessionId: String) { // Renamed for clarity
         viewModelScope.launch {
             try {
-                // Prepare the data to send to the Cloud Function
+                Log.d("ChatViewModel", "Calling chatWithGemini Cloud Function...")
                 val data = hashMapOf(
-                    "text" to userText,
-                    "sessionId" to sessionId // Pass the user's UID as session ID
+                    "text" to userText
+                    // sessionId is NOT needed here, as the function gets it from context.auth.uid
                 )
 
-                // Call the 'detectIntent' Cloud Function
-                // This will execute your Node.js code deployed in Firebase Functions
+                // Call the 'chatWithGemini' Cloud Function
                 val result = functions
-                    .getHttpsCallable("detectIntent") // Name of your Cloud Function
+                    .getHttpsCallable("chatWithGemini") // <<< NEW FUNCTION NAME
                     .call(data)
                     .await()
 
-                // Parse the result from the Cloud Function
+                Log.d("ChatViewModel", "Cloud Function call successful. Result: ${result.data}")
                 val responseData = result.data as? Map<String, Any>
-                val fulfillmentText = responseData?.get("fulfillmentText") as? String
+                val fulfillmentText = responseData?.get("text") as? String // Expecting 'text' key from Gemini response
 
                 if (!fulfillmentText.isNullOrBlank()) {
                     // 3. Save AI's response to Firestore
                     val aiMessage = ChatMessage(
-                        userId = "AI", // Identifier for AI messages
+                        userId = "AI",
                         text = fulfillmentText,
                         timestamp = Date().time,
                         isUser = false
                     )
-                    val collectionPath = "artifacts/${sessionId}/public/data/messages" // Use sessionId for path
+                    val collectionPath = "artifacts/${sessionId}/public/data/messages"
 
                     db.collection(collectionPath)
                         .add(aiMessage)
@@ -175,15 +174,14 @@ class ChatViewModel : ViewModel() {
                             Log.d("ChatViewModel", "AI message added with ID: ${aiDocRef.id}")
                         }
                         .addOnFailureListener { e ->
-                            Log.w("ChatViewModel", "Error adding AI message", e)
+                            Log.e("ChatViewModel", "Error adding AI message to Firestore", e)
                         }
                 } else {
-                    val collectionPath = "artifacts/${sessionId}/public/data/messages" // Use sessionId for path
-                    Log.w("ChatViewModel", "Dialogflow returned an empty or null fulfillment text.")
-                    // Optionally, save a default "I don't understand" message
+                    Log.w("ChatViewModel", "Gemini returned an empty or null fulfillment text.")
+                    val collectionPath = "artifacts/${sessionId}/public/data/messages"
                     val fallbackMessage = ChatMessage(
                         userId = "AI",
-                        text = "I'm sorry, I didn't understand that. Can you rephrase?",
+                        text = "I'm sorry, I couldn't get a clear response from the AI. Can you rephrase?",
                         timestamp = Date().time,
                         isUser = false
                     )
@@ -194,8 +192,7 @@ class ChatViewModel : ViewModel() {
                 }
 
             } catch (e: Exception) {
-                Log.e("ChatViewModel", "Error calling Cloud Function: ${e.message}", e)
-                // Optionally, save an error message if the function call fails
+                Log.e("ChatViewModel", "Error calling Cloud Function or processing response: ${e.message}", e)
                 val errorMessage = ChatMessage(
                     userId = "AI",
                     text = "Oops! Something went wrong with the AI. Please try again.",

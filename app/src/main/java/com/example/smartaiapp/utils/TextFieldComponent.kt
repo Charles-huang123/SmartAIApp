@@ -39,8 +39,7 @@ fun CommonTextField(
         textStyle = TextStyle(color = Color.Black),
         modifier = modifier
             .fillMaxWidth()
-            .background(Color.White, shape = RoundedCornerShape(12.dp))
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .background(Color.White, shape = RoundedCornerShape(12.dp)),
         decorationBox = { innerTextField ->
             Box(
                 contentAlignment = Alignment.CenterStart

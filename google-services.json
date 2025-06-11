@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "187969809849",
+    "project_id": "smartai-86e5d",
+    "storage_bucket": "smartai-86e5d.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:187969809849:android:64f13eeaadce9b1e8a5a68",
+        "android_client_info": {
+          "package_name": "com.example.smartaiapp"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA_1LLWj_e9xRbE-2fqFrm5vn7I21p85pY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

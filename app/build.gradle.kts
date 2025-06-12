@@ -3,6 +3,7 @@ plugins {
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     id("com.google.gms.google-services")
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 android {
@@ -57,7 +58,11 @@ dependencies {
     implementation (libs.firebase.firestore)
     // firebase auth
     implementation (libs.firebase.auth)
+    // The actual Firebase AI Logic SDK
+    // No version specified here because the BoM handles it.
+    implementation(libs.firebase.ai)
     implementation (libs.google.firebase.functions.ktx)
+    implementation(libs.kotlinx.serialization.json)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)

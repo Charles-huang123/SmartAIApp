@@ -1,12 +1,21 @@
 package com.example.smartaiapp.viewmodels
 
+import android.location.Location
 import android.util.Log
-import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.smartaiapp.ChatMessage
 import com.google.firebase.Firebase
+import com.google.firebase.ai.ai
+import com.google.firebase.ai.type.FunctionDeclaration
+import com.google.firebase.ai.type.FunctionResponsePart
+import com.google.firebase.ai.type.GenerativeBackend
+import com.google.firebase.ai.type.Part
+import com.google.firebase.ai.type.Schema
+import com.google.firebase.ai.type.Tool
+import com.google.firebase.ai.type.asTextOrNull
+import com.google.firebase.ai.type.content
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.firestore.FirebaseFirestore
@@ -18,13 +27,38 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import java.util.Date
 
 class ChatViewModel : ViewModel() {
     // Initialize Firebase Firestore and Auth instances
     private val db: FirebaseFirestore = Firebase.firestore
     private val auth: FirebaseAuth = FirebaseAuth.getInstance()
-    private val functions: FirebaseFunctions = Firebase.functions
+
+    // Declare the function for Gemini
+    val getAccountBalanceDeclaration = FunctionDeclaration(
+        name = "getAccountBalance", // Must match your Kotlin function name
+        description = "Get currency Balance of specify user",
+        parameters = mapOf(
+            "accountNumber" to Schema.string(
+                description = "123456789 or 9873 or 3232323",
+                nullable = false // Mark it as required
+            )
+        )
+    )
+
+    // Initialize the Gemini Developer API backend service
+// Create a `GenerativeModel` instance with a model that supports your use case
+    val model = Firebase.ai(backend = GenerativeBackend.googleAI()).generativeModel(
+        modelName = "gemini-2.0-flash",
+        // Provide the function declaration to the model.
+        tools = listOf(Tool.functionDeclarations(listOf(getAccountBalanceDeclaration)))
+    )
+
+
     // ListenerRegistration to manage the Firestore snapshot listener
     private var messagesListener: ListenerRegistration? = null
 
@@ -34,6 +68,28 @@ class ChatViewModel : ViewModel() {
 
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages = _messages.asStateFlow()
+
+    // Define a data class for the weather result
+    data class Balance(
+        val amount: Double,
+        val currency: String,
+    )
+
+    suspend fun getCurrentBalance(accountNumber: String): JsonObject? {
+        // In a real app, this would make an API call (e.g., to OpenWeatherMap)
+        // For demonstration, we'll return mock data
+        return when (accountNumber.toLowerCase()){
+            "123456789" -> JsonObject(mapOf(
+                "accountBalance" to JsonPrimitive(12000),
+                "currency" to JsonPrimitive("USD"),
+            ))
+            "9898"-> JsonObject(mapOf(
+                "accountBalance" to JsonPrimitive(5000),
+                "currency" to JsonPrimitive("KHR"),
+            ))
+            else -> null
+        }
+    }
 
     // Initialize user authentication when the ViewModel is created
     init {
@@ -104,16 +160,11 @@ class ChatViewModel : ViewModel() {
         }
     }
 
-    /**
-     * Sends a chat message to Firestore.
-     * @param text The content of the message.
-     * @param userId The ID of the user sending the message.
-     */
-    fun sendMessage(text: String, userId: String) {
+    fun sendMessage(userText: String,userId: String) {
         // Create a new Message object
         val message = ChatMessage(
             userId = userId,
-            text = text,
+            text = userText,
             timestamp = Date().time,
             isUser = true// Current timestamp
         )
@@ -128,7 +179,7 @@ class ChatViewModel : ViewModel() {
             .add(message) // add() automatically generates a document ID
             .addOnSuccessListener { documentReference ->
                 Log.d("ChatViewModel", "DocumentSnapshot added with ID: ${documentReference.id}")
-                callGeminiChatFunction(text, userId)
+                callGeminiChatFunction(userText, userId)
             }
             .addOnFailureListener { e ->
                 Log.d("ChatViewModel", "Error adding document", e)
@@ -142,32 +193,39 @@ class ChatViewModel : ViewModel() {
     private fun callGeminiChatFunction(userText: String, sessionId: String) { // Renamed for clarity
         viewModelScope.launch {
             try {
-                Log.d("ChatViewModel", "Calling chatWithGemini Cloud Function...")
-                val data = hashMapOf(
-                    "text" to userText
-                    // sessionId is NOT needed here, as the function gets it from context.auth.uid
-                )
+                val prompt = userText
+                val chat = model.startChat()
+// Send the user's question (the prompt) to the model using multi-turn chat.
+                val result = chat.sendMessage(prompt)
 
-                // Call the 'chatWithGemini' Cloud Function
-                val result = functions
-                    .getHttpsCallable("chatWithGemini") // <<< NEW FUNCTION NAME
-                    .call(data)
-                    .await()
+                val functionCalls = result.functionCalls
+// When the model responds with one or more function calls, invoke the function(s).
+                val fetchWeatherCall = functionCalls.find { it.name == "getAccountBalance" }
 
-                Log.d("ChatViewModel", "Cloud Function call successful. Result: ${result.data}")
-                val responseData = result.data as? Map<String, Any>
-                val fulfillmentText = responseData?.get("text") as? String // Expecting 'text' key from Gemini response
+// Forward the structured input data prepared by the model
+// to the hypothetical external API.
+                val functionResponse = fetchWeatherCall?.let {
+                    val accountNumber = it.args["accountNumber"]!!.jsonPrimitive.content
+                    getCurrentBalance(accountNumber = accountNumber)
+                }
 
-                if (!fulfillmentText.isNullOrBlank()) {
+                var finalResponse = result
+
+                if(functionResponse != null){
+                    finalResponse = chat.sendMessage(content("function") {
+                        part(FunctionResponsePart("getAccountBalance", functionResponse))
+                    })
+                }
+                if(finalResponse.candidates.isNotEmpty()){
+                    val candidate = finalResponse.candidates.first().content
                     // 3. Save AI's response to Firestore
                     val aiMessage = ChatMessage(
                         userId = "AI",
-                        text = fulfillmentText,
+                        text = candidate.parts.first().asTextOrNull() ?: "",
                         timestamp = Date().time,
                         isUser = false
                     )
                     val collectionPath = "artifacts/${sessionId}/public/data/messages"
-
                     db.collection(collectionPath)
                         .add(aiMessage)
                         .addOnSuccessListener { aiDocRef ->
@@ -176,19 +234,6 @@ class ChatViewModel : ViewModel() {
                         .addOnFailureListener { e ->
                             Log.e("ChatViewModel", "Error adding AI message to Firestore", e)
                         }
-                } else {
-                    Log.w("ChatViewModel", "Gemini returned an empty or null fulfillment text.")
-                    val collectionPath = "artifacts/${sessionId}/public/data/messages"
-                    val fallbackMessage = ChatMessage(
-                        userId = "AI",
-                        text = "I'm sorry, I couldn't get a clear response from the AI. Can you rephrase?",
-                        timestamp = Date().time,
-                        isUser = false
-                    )
-                    db.collection(collectionPath)
-                        .add(fallbackMessage)
-                        .addOnSuccessListener { Log.d("ChatViewModel", "Fallback AI message added.") }
-                        .addOnFailureListener { Log.w("ChatViewModel", "Error adding fallback AI message", it) }
                 }
 
             } catch (e: Exception) {

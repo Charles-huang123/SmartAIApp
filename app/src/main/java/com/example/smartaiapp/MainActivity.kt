@@ -84,7 +84,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable
 fun ChatScreen(viewModel: ChatViewModel = androidx.lifecycle.viewmodel.compose.viewModel()) {
-    var messageInput = remember { mutableStateOf("") }
+    val messageInput = remember { mutableStateOf("") }
     // Collect the messages from the ViewModel's StateFlow as Compose state
     val messages = viewModel.messages.collectAsState()
     val userId = viewModel.currentUser.value?.uid ?: "anonymous_user" // Get current user ID or default
@@ -179,7 +179,7 @@ fun MessageBubble(message: ChatMessage, dateFormatter: SimpleDateFormat, bubbleC
         ) {
             // Show truncated User ID for user, or "AI" for AI messages
             Text(
-                text = if (message.isUser) "User ID : ${message.userId.substring(0, 8)}" else stringResource(R.string.prince_bank_ai),
+                text = if (message.isUser) "User ID : ${message.userId.substring(0, 8)}" else stringResource(R.string.ai_name),
                 style = MaterialTheme.typography.labelSmall,
                 color = if (message.isUser) colorResource(R.color.white) else colorResource(R.color.white)
             )

@@ -60,7 +60,7 @@ class ChatViewModel : ViewModel() {
             addExternalAPI(
                 ExternalAPI(
                     methodName = ::getCurrentBalance.name,
-                    methodDescription = "Get currency Balance of specify user",
+                    methodDescription = "Only use this if you cannot provide answer by query generative AI Response and the key word used related to current user balance",
                     listParameters = listOf(
                         ExternalAPIParameter(
                             parameterName = "accountNumber",
